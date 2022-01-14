@@ -6,11 +6,12 @@ import (
     "net"
     "strings"
     "os"
+    // "time"
     "io"
-    "time"
 )
 
 var question string
+var listener net.Listener
 
 
 type Client struct {
@@ -117,56 +118,71 @@ func (client *Client) consoleWorkFlow() {
     }
 }
 
-func (client *Client) parse (input string) {
-    // var path string
-    // var param map[string]string
-    tmp := strings.Split(input, "?")
-    fmt.Println(tmp)
+func (client *Client) parse (input string) (string, string, string, map[string]string) {
+    if(input == ""){
+        return "", "", "", make(map[string]string)
+    }
+    params := make(map[string]string)
+    tmp := strings.Split(input, " ")
+    method := tmp[0]
+    version := tmp[2]
+    tmp = strings.Split(tmp[1], "?")
+    path := tmp[0]
+    if(len(tmp) > 1){
+        tmp = strings.Split(tmp[1], "&")
+        for _, item := range tmp {
+            param := strings.Split(item, "=")
+            params[param[0]] = param[1]
+        }
+    }
+    fmt.Println(method, path, version, params)
+    return method, path, version, params
 }
 
-func (client *Client) get(req []string) {
-    client.parse(req[1])
-}
-
-func (client *Client) readHttp() {
+func (client *Client) readHttp() (string, string, string, map[string]string)  {
     count := 0
-    fmt.Println("here")
-    for{
-        http, err := client.clientReader.ReadString('\n')
-        if(err != nil){
-            if(err != io.EOF){
-                checkErr(err)
-            }else{
-                time.Sleep(5*time.Second)
-            }
+    var ret string
+    for {
+        line, err := client.clientReader.ReadString('\r')
+        line = strip(line)
+        if(err != io.EOF){
+            checkErr(err)
         }
-        if(count == 0){
-            req := strings.Split(http, " ")
-            if(req[0] == "GET") {
-                client.get(req)
-            }
+        if line == "" {
+            return client.parse(ret)
         }
-        if(http == "\r\n"){
-            break
+        fmt.Println(line)
+        if(count == 0) {
+            ret = line
         }
         count++
     }
 }
 
-func (client *Client) webAskName() {
-    client.readHttp()
-    s, err := os.ReadFile("./index.html")
+func (client *Client) sendIndex(version string) {
+    s, err := os.ReadFile("./template/index.html")
     checkErr(err)
-    header := fmt.Sprintf("HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\n\n", len(s))
-    fmt.Print(header+string(s)+"\r\n")
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
     client.clientWriter.WriteString(header+string(s)+"\r\n")
     client.clientWriter.Flush()
-    
-    client.readHttp()
 }
 
+
 func (client *Client) webWorkFlow() {
-    client.webAskName()
+    for {
+        method, path, version, params := client.readHttp()
+        if(method == ""){
+            // time.Sleep(1*time.Second)
+            // fmt.Println("here")
+            continue
+        }
+        fmt.Println(method, path, version, params)
+        switch method {
+            case "GET":
+                client.sendIndex(version)
+        }
+
+    }
 }
 
 func NewClient(connection net.Conn) *Client {
@@ -195,7 +211,7 @@ func console() {
 }
 
 func web() {
-    listener, _ := net.Listen("tcp", ":80")
+    listener, _ = net.Listen("tcp", ":80")
     conn, err := listener.Accept()
     checkErr(err)
     client := NewClient(conn)
@@ -225,6 +241,7 @@ func (client *Client)exit() {
 
 func strip(s string) string {
 	s = strings.Replace(s, "\n", "", -1)
+	s = strings.Replace(s, "\r", "", -1)
 	return s
 }
 
