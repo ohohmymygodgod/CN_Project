@@ -5,9 +5,11 @@
         <title>Chat Box</title>
     </head>
     <body>
-        <form action="/home" method="post">
-            <label for="username">Input Your Username:</label><br>
+        <form action="/username" method="post">
+            <label for="username">First name:</label><br>
             <input type="text" id="username" name="username"/><br>
+            <label for="password">First name:</label><br>
+            <input type="text" id="password" name="password"/><br>
             <input type="submit" value="Submit">
         </form>
     </body>

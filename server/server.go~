@@ -9,7 +9,7 @@ import (
     "strconv"
     "sort"
     "runtime"
-    //"reflect"
+	"reflect"
     "server/database"
     _ "github.com/mattn/go-sqlite3"
 )
@@ -45,11 +45,13 @@ func (client *Client) ListFriends() []string {
     ret += "\n"
     client.writer.WriteString(ret)
     client.writer.Flush()
+	fmt.Println("here")
     return friends
 }
 
 func (client *Client) ListNotFriends() []string {
     tmp := database.ListNotFriends(db, client.name)
+	fmt.Println(tmp)
     var notFriends []string
     for user := range tmp {
         notFriends = append(notFriends, user)
@@ -179,7 +181,9 @@ func (client *Client) WorkFlow() {
     for {
         i, err := client.reader.ReadString('\n')
         i = strip(i)
+		fmt.Println(i)
         client.handleErr(err)
+		fmt.Println(reflect.TypeOf(i), reflect.TypeOf("1"), len(i), len("1"))
         switch i {
         case "1":
             client.ListFriends()

@@ -1,0 +1,15 @@
+<script>
+
+var fileUploader = document.querySelector('#fileUpload');
+
+fileUploader.addEventListener('click', async (e) => {
+  var file = document.getElementById('file').files[0]
+  console.log(file)
+  var formData = new FormData();
+  formData.append("file", file);
+  fetch('/file', {method: "POST", body: formData});
+})
+
+
+</script>
+

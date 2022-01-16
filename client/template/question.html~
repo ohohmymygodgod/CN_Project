@@ -5,7 +5,7 @@
         <title>Chat Box</title>
     </head>
     <body>
-        <form action="/home" method="post">
+        <form action="/username" method="post">
             <label for="username">Input Your Username:</label><br>
             <input type="text" id="username" name="username"/><br>
             <input type="submit" value="Submit">

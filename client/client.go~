@@ -1,0 +1,355 @@
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "net"
+    "strings"
+    "os"
+    // "io/ioutil"
+    // "time"
+    // "io"
+)
+
+var question string
+var listener net.Listener
+
+
+type Client struct {
+    name       string
+    serverReader     *bufio.Reader
+    serverWriter     *bufio.Writer
+    clientReader     *bufio.Reader
+    clientWriter     *bufio.Writer
+    clientConn  net.Conn
+    serverConn  net.Conn
+}
+
+
+func (client *Client) consoleRead() {
+    for {
+        message, err := client.serverReader.ReadString('\n')
+        message = strip(message)
+        checkErr(err)
+        if(message == "FINISH") {
+            return
+        }
+        fmt.Println(message)
+    }
+}
+
+func (client *Client) consoleWrite() {
+    in := bufio.NewReader(os.Stdin)
+    for {
+        message, err := in.ReadString('\n')
+        message = strip(message)
+        checkErr(err)
+        client.serverWriter.WriteString(message+"\n")
+        client.serverWriter.Flush()
+        if(message == "exit") {
+            return
+        }
+    }
+}
+
+func (client *Client) consoleAskName() {
+    fmt.Println("input your username:")
+    var name string
+    fmt.Scanln(&name)
+    client.name = name
+    client.serverWriter.WriteString(name+"\n")
+    client.serverWriter.Flush()
+}
+
+func (client *Client) consoleReadOption() (string, string) {
+    var option string
+    fmt.Scanln(&option)
+    client.serverWriter.WriteString(option+"\n")
+    client.serverWriter.Flush()
+    if(option == "exit") {
+        return "exit", option
+    }
+    res, err := client.serverReader.ReadString('\n')
+    res = strip(res)
+    checkErr(err)
+    fmt.Println(res)
+    return res, option
+}
+
+
+func (client *Client) consoleWorkFlow() {
+    client.consoleAskName()
+    for {
+        fmt.Println(question)
+        res, option := client.consoleReadOption()
+        switch option {
+            case "1":
+            case "2":
+                if(res == "No other users.") {
+                    break
+                }
+                client.consoleReadOption()
+            case "3":
+                if(res == "No friends.") {
+                    break
+                }
+                client.consoleReadOption()
+            case "4":
+                if(res == "No friends.") {
+                    break
+                }
+                fmt.Scanln(&option)
+                client.serverWriter.WriteString(option+"\n")
+                client.serverWriter.Flush()
+                for {
+                    res, err := client.serverReader.ReadString('\n')
+                    res = strip(res)
+                    checkErr(err)
+                    if(res != "START") {
+                        fmt.Println(res)
+                    }else{
+                        break
+                    }
+                }
+                go client.consoleRead()
+                client.consoleWrite()
+            case "exit":
+                client.exit()
+        }
+    }
+}
+
+func (client *Client) parseParam (input string) map[string]string {
+    params := make(map[string]string)
+    tmp := strings.Split(input, "&")
+    for _, item := range tmp {
+        param := strings.Split(item, "=")
+        params[param[0]] = param[1]
+    }
+    return params
+}
+
+func (client *Client) parse (input string) (string, string, string, map[string]string) {
+    if(input == ""){
+        return "", "", "", make(map[string]string)
+    }
+    params := make(map[string]string)
+    tmp := strings.Split(input, " ")
+    method := tmp[0]
+    version := tmp[2]
+    tmp = strings.Split(tmp[1], "?")
+    path := tmp[0]
+    if(len(tmp) > 1){
+        params = client.parseParam(tmp[1])
+    }
+    fmt.Println(method, path, version, params)
+    return method, path, version, params
+}
+
+func (client *Client) readHttp() (string, string, string, map[string]string)  {
+    count := 0
+    var method string
+    var path string
+    var version string
+    params := make(map[string]string)
+    buf := make([]byte, 4096)
+    n, err := client.clientConn.Read(buf)
+    checkErr(err)
+	req := strings.Split(string(buf[:n]), "\r\n")
+    l := len(req)
+    for i, _ := range req {
+        if(count == 0) {
+            method, path, version, params = client.parse(req[i])
+        }
+        count++
+        if(i == l-1) {
+            if(method == "POST"){
+                params = client.parseParam(req[i])
+            }
+            return method, path, version, params
+        }
+    }
+    return method, path, version, params
+}
+
+func (client *Client) sendIndex(version string) {
+    s, err := os.ReadFile("./template/index.html")
+    checkErr(err)
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    client.clientWriter.WriteString(header+string(s)+"\r\n")
+    client.clientWriter.Flush()
+}
+
+
+func (client *Client) sendQuestion(version string) {
+    s, err := os.ReadFile("./template/home.html")
+    checkErr(err)
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    client.clientWriter.WriteString(header+string(s)+"\r\n")
+    client.clientWriter.Flush()
+}
+
+func (client *Client) sendListFriends(res string, version string) {
+	//prefix := "<html><head><meta charset='utf-8'><title>Chat Box</title></head><body><ol>"
+	//suffix := "</ol></body></html>"
+	var friends [string]
+	tmp := strings.Split(res, " ")
+	for i := 1; i < len(tmp); i += 2 {
+		friends = append(friends, tmp[i])	
+	}
+	for _, friend := friends {
+		prefix += "<li>"friend"</li>"
+	}
+	//header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    //client.clientWriter.WriteString(header+string(s)+"\r\n")
+    //client.clientWriter.Flush()
+}
+
+
+func (client *Client) sendAddFriend(res string, version string) {
+    s, err := os.ReadFile("./template/home.html")
+    checkErr(err)
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    client.clientWriter.WriteString(header+string(s)+"\r\n")
+    client.clientWriter.Flush()
+}
+
+
+func (client *Client) sendDeleteFriend(res string, version string) {
+    s, err := os.ReadFile("./template/home.html")
+    checkErr(err)
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    client.clientWriter.WriteString(header+string(s)+"\r\n")
+    client.clientWriter.Flush()
+}
+
+
+func (client *Client) sendChat(res string, version string) {
+    s, err := os.ReadFile("./template/home.html")
+    checkErr(err)
+    header := fmt.Sprintf("%s 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: close\r\n\r\n", version, len(s))
+    client.clientWriter.WriteString(header+string(s)+"\r\n")
+    client.clientWriter.Flush()
+}
+
+
+func (client *Client) reconnect() {
+    conn, err := listener.Accept()
+    checkErr(err)
+    fmt.Println("Client from: ", conn.RemoteAddr())
+    client.clientConn = conn
+    client.clientWriter = bufio.NewWriter(conn)
+    client.clientReader = bufio.NewReader(conn)
+}
+
+func (client *Client) webWorkFlow(listener net.Listener) {
+    for {
+        method, path, version, params := client.readHttp()
+        fmt.Println("method, path, version, params = ", method, path, version, params)
+        switch method {
+            case "GET":
+                switch path {
+                case "/":
+                    client.sendIndex(version)
+                }
+            case "POST":
+                switch path {
+                case "/username":
+    				client.name = params["username"]
+    				client.serverWriter.WriteString(client.name+"\n")
+    				client.serverWriter.Flush()
+                    client.sendQuestion(version)
+				case "/home":
+					fmt.Println(params["option"])
+    				client.serverWriter.WriteString(strip(params["option"])+"\n")
+    				client.serverWriter.Flush()
+    				res, err := client.serverReader.ReadString('\n')
+    				res = strip(res)
+    				checkErr(err)
+    				fmt.Println(res)
+					switch params["option"] {
+						case "1":
+							client.sendListFriends(res, version)
+						case "2":
+							client.sendAddFriend(res, version)
+						case "3":
+							client.sendDeleteFriend(res, version)
+						case "4":
+							client.sendChat(res, version)
+					}
+                }
+        }
+        client.clientConn.Close()
+        client.clientWriter = nil
+        client.clientReader = nil
+        fmt.Println("==============")
+        client.reconnect()
+    }
+}
+
+func NewClient(connection net.Conn) *Client {
+    serverConn, err := net.Dial("tcp", "140.112.30.32:8888")
+    checkErr(err)
+    serverWriter := bufio.NewWriter(serverConn)
+    serverReader := bufio.NewReader(serverConn)
+    clientWriter := bufio.NewWriter(connection)
+    clientReader := bufio.NewReader(connection)
+
+    client := &Client{
+        clientConn: connection,
+        serverConn: serverConn,
+        serverReader: serverReader,
+        serverWriter: serverWriter,
+        clientReader: clientReader,
+        clientWriter: clientWriter,
+    }
+    return client
+}
+
+func console() {
+    tmp := new(net.Conn)
+    client := NewClient(*tmp)
+    client.consoleWorkFlow()
+}
+
+func web() {
+    listener, _ = net.Listen("tcp", "140.112.30.32:8889")
+    conn, err := listener.Accept()
+    checkErr(err)
+    fmt.Println("Client from: ", conn.RemoteAddr())
+    client := NewClient(conn)
+    client.webWorkFlow(listener)
+}
+
+func main() {
+    mode := os.Args[1]
+    fmt.Println(mode)
+    question = "Home\n (1) List all friends\n (2) Add friend\n (3) Delete friend\n (4) Choose a chat room"
+    switch mode {
+    case "console":
+        console()
+    case "web":
+        web()
+    }
+}
+
+func (client *Client)exit() {
+    client.serverConn.Close()
+    if(client.clientConn != nil) {
+        client.clientConn.Close()
+    }
+    os.Exit(1)
+}
+
+
+func strip(s string) string {
+	s = strings.Replace(s, "\n", "", -1)
+	s = strings.Replace(s, "\r", "", -1)
+	return s
+}
+
+func checkErr(err error) {
+    if err != nil {
+        panic(err)
+    }
+}
